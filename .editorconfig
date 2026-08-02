@@ -1,0 +1,18 @@
+root = true
+
+# Global settings
+charset = utf-8
+end_of_line = lf
+insert_final_newline = true
+trim_trailing_whitespace = true
+indent_style = space
+max_line_length = 78
+tab_width = 8
+[.java]
+max_line_length = 100
+[.c]
+indent_size = 4
+[.pm]
+indent_size = 4
+[.pl]
+indent_size = 4
