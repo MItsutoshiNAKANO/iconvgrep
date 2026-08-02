@@ -7,8 +7,10 @@ use Encode;
 use English '-no_match_vars';
 use Getopt::Std;
 
+## The version of the script.
 our $VERSION = '0.0.1';
 
+## Help message for the script.
 my $HELP = <<"_END_OF_HELP_";
 usage: $PROGRAM_NAME [OPTION ..] REGEX [FILE ..]
 OPTION:
@@ -37,12 +39,23 @@ For more details run
     perldoc -F $PROGRAM_NAME
 _END_OF_HELP_
 
+##
+# Print the help message when the user requests it or when an error occurs.
+# @return 1 on success, otherwise croak with an error message.
 sub HELP_MESSAGE {
     print "$HELP"
         or croak 'failed to print help message: ' . $OS_ERROR . "\n" . $HELP;
     return 1;
 }
 
+##
+# Compile the provided regex string into a regex object.
+# @param[in] $regex_string The regex string to compile.
+# @param[in] $ignore_case
+#   A boolean indicating whether to ignore case in regex matching.
+# @return
+#   The compiled regex object,
+#   or croak with an error message if the regex is invalid.
 sub compile_regex {
     my ( $regex_string, $ignore_case ) = @_;
     my $regex = eval {
@@ -54,6 +67,14 @@ sub compile_regex {
     return $regex;
 }
 
+##
+# Specify the behavior for encoding errors.
+# Specify the behavior for encoding errors based
+# on the provided behavior string.
+# @param[in] $behavior_string The behavior string to specify the behavior.
+# @return
+#   The corresponding behavior constant from the Encode module,
+#   or croak with an error message if the behavior string is invalid.
 sub specify_behavior {
     my ($behavior_string) = @_;
     my $behavior = {
@@ -66,10 +87,20 @@ sub specify_behavior {
         FB_XMLCREF  => Encode::FB_XMLCREF,
     }->{$behavior_string};
     defined $behavior
-        or croak "invalid behavior: $behavior_string\n" . $HELP;
+        or croak 'invalid behavior: ' . $behavior_string . "\n" . $HELP;
     return $behavior;
 }
 
+##
+# Parse the command-line arguments.
+# Parse the command-line arguments and return a hash reference containing
+# the parsed values.
+# @return
+#   A hash reference containing the parsed values:
+#   - from: The source encoding (default: utf8)
+#   - to: The target encoding (default: utf8)
+#   - regex: The compiled regex object
+#   - behavior: The specified behavior for encoding errors
 sub parse_arguments {
     $Getopt::Std::STANDARD_HELP_VERSION = 1;
     getopts( 'ib:f:t:', \my %opts ) or croak $HELP;
@@ -92,18 +123,35 @@ sub parse_arguments {
     };
 }
 
+##
+# Convert a line from the specified source encoding to UTF-8.
+# @param[in] $from_encoding The source encoding of the line.
+# @param[in] $line The line to convert.
+# @param[in] $behavior The specified behavior for encoding errors.
+# @return The line converted to UTF-8.
 sub encode_to_utf8 {
     my ( $from_encoding, $line, $behavior ) = @_;
     my $decoded_line = decode( $from_encoding, $line, $behavior );
     return encode( 'utf8', $decoded_line, $behavior );
 }
 
+##
+# Convert a line from UTF-8 to the specified target encoding.
+# @param[in] $to_encoding The target encoding of the line.
+# @param[in] $line The line to convert.
+# @param[in] $behavior The specified behavior for encoding errors.
+# @return The line converted to the target encoding.
 sub decode_from_utf8 {
     my ( $to_encoding, $line, $behavior ) = @_;
     my $decoded_line = decode( 'utf8', $line, $behavior );
     return encode( $to_encoding, $decoded_line, $behavior );
 }
 
+##
+# Match a line against the specified regex and print it if it matches.
+# @param[in] $parsed A hash reference containing the parsed values.
+# @param[in] $utf8_line The line to match against the regex.
+# @return 1 if the line matches the regex and is printed, otherwise 0.
 sub match_and_print {
     my ( $parsed, $utf8_line ) = @_;
     my $to_encoding = $parsed->{to};
@@ -120,6 +168,11 @@ sub match_and_print {
     return 0;
 }
 
+##
+# Match a line against the specified regex and print it if it matches.
+# @param[in] $parsed A hash reference containing the parsed values.
+# @param[in] $line The line to match against the regex.
+# @return 1 if the line matches the regex and is printed, otherwise 0.
 sub print_matched_line {
     my ( $parsed, $line ) = @_;
     my $from_encoding = $parsed->{from};
@@ -138,13 +191,24 @@ sub print_matched_line {
     return 0;
 }
 
+##
+# Read lines and print matched lines from the input files.
+# Read lines from the input files, match them against the specified regex,
+# and print the matched lines.
+# @param[in] $parsed
+#   A hash reference containing the parsed values.
+#   - from: The source encoding (default: utf8)
+#   - to: The target encoding (default: utf8)
+#   - regex: The compiled regex object
+#   - behavior: The specified behavior for encoding errors
+#     (default: FB_DEFAULT)
+# @return The number of matched lines printed.
 sub print_matched_lines {
     my ($parsed)      = @_;
     my $from_encoding = $parsed->{from};
     my $behavior      = $parsed->{behavior};
 
     my $matched = 0;
-
     while (<>) {
         if ( print_matched_line( $parsed, $_ ) ) { ++$matched }
     }
@@ -157,11 +221,17 @@ sub print_matched_lines {
     return $matched;
 }
 
+##
+# The main function of the script.
+# Parse the command-line arguments
+# and print matched lines from the input files.
+# @return The number of matched lines printed.
 sub main {
     my $parsed = parse_arguments();
     return print_matched_lines($parsed);
 }
 
+# Run the main function if the script is executed directly.
 if ( !caller ) { main() }
 
 1;
