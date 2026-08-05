@@ -58,13 +58,17 @@ sub HELP_MESSAGE {
 #   or croak with an error message if the regex is invalid.
 sub compile_regex {
     my ( $regex_string, $ignore_case ) = @_;
+    ## no critic (RegularExpressions::RequireExtendedFormatting)
+    ## /x is intentionally omitted: it would silently drop whitespace
+    ## characters from the user-supplied pattern.
     my $regex = eval {
-        $ignore_case ? qr/$regex_string/xmsui : qr/$regex_string/xmsu;
+        $ignore_case ? qr/$regex_string/msui : qr/$regex_string/msu;
     }
         or croak 'invalid regex: '
         . $regex_string . "\n"
         . $EVAL_ERROR . "\n";
     return $regex;
+    ## use critic
 }
 
 ##
@@ -113,7 +117,11 @@ sub parse_arguments {
 
     my $ignore_case  = $opts{i};
     my $regex_string = shift @ARGV or croak "no regex provided\n" . $HELP;
-    my $regex        = compile_regex( $regex_string, $ignore_case );
+
+    # @ARGV holds raw bytes; decode them so that the regex matches
+    # per character, not per byte.
+    my $decoded_regex_string = decode( 'utf8', $regex_string, $behavior );
+    my $regex = compile_regex( $decoded_regex_string, $ignore_case );
 
     return {
         from     => $from_encoding,
@@ -124,54 +132,9 @@ sub parse_arguments {
 }
 
 ##
-# Convert a line from the specified source encoding to UTF-8.
-# @param[in] $from_encoding The source encoding of the line.
-# @param[in] $line The line to convert.
-# @param[in] $behavior The specified behavior for encoding errors.
-# @return The line converted to UTF-8.
-sub encode_to_utf8 {
-    my ( $from_encoding, $line, $behavior ) = @_;
-    my $decoded_line = decode( $from_encoding, $line, $behavior );
-    return encode( 'utf8', $decoded_line, $behavior );
-}
-
-##
-# Convert a line from UTF-8 to the specified target encoding.
-# @param[in] $to_encoding The target encoding of the line.
-# @param[in] $line The line to convert.
-# @param[in] $behavior The specified behavior for encoding errors.
-# @return The line converted to the target encoding.
-sub decode_from_utf8 {
-    my ( $to_encoding, $line, $behavior ) = @_;
-    my $decoded_line = decode( 'utf8', $line, $behavior );
-    return encode( $to_encoding, $decoded_line, $behavior );
-}
-
-##
 # Match a line against the specified regex and print it if it matches.
 # @param[in] $parsed A hash reference containing the parsed values.
-# @param[in] $utf8_line The line to match against the regex.
-# @return 1 if the line matches the regex and is printed, otherwise 0.
-sub match_and_print {
-    my ( $parsed, $utf8_line ) = @_;
-    my $to_encoding = $parsed->{to};
-    my $regex       = $parsed->{regex};
-    my $behavior    = $parsed->{behavior};
-
-    if ( $utf8_line =~ $regex ) {
-        my $encoded_line
-            = decode_from_utf8( $to_encoding, $utf8_line, $behavior );
-        print "$ARGV" . ': ' . $encoded_line
-            or croak 'failed to print matched line: ' . $OS_ERROR;
-        return 1;
-    }
-    return 0;
-}
-
-##
-# Match a line against the specified regex and print it if it matches.
-# @param[in] $parsed A hash reference containing the parsed values.
-# @param[in] $line The line to match against the regex.
+# @param[in] $line The raw input line in the source encoding.
 # @return 1 if the line matches the regex and is printed, otherwise 0.
 sub print_matched_line {
     my ( $parsed, $line ) = @_;
@@ -180,10 +143,9 @@ sub print_matched_line {
     my $regex         = $parsed->{regex};
     my $behavior      = $parsed->{behavior};
 
-    my $utf8_line = encode_to_utf8( $from_encoding, $line, $behavior );
-    if ( $utf8_line =~ $regex ) {
-        my $encoded_line
-            = decode_from_utf8( $to_encoding, $utf8_line, $behavior );
+    my $decoded_line = decode( $from_encoding, $line, $behavior );
+    if ( $decoded_line =~ $regex ) {
+        my $encoded_line = encode( $to_encoding, $decoded_line, $behavior );
         print "$ARGV" . q{:} . $NR . q{: } . $encoded_line
             or croak 'failed to print matched line: ' . $OS_ERROR;
         return 1;
@@ -286,12 +248,13 @@ iconvgrep.pl - grep with encoding conversion
 =item REGEX
 
 The regular expression to match against each line of the input files.
-The regex is applied after converting the line from the source encoding
-to UTF-8.
-The regex can be specified in Perl syntax, and supports various regex
-modifiers such as /i for case-insensitive matching,
-/x for extended syntax, /s for single-line mode,
-/m for multi-line mode, and /u for Unicode mode.
+The regex is applied after decoding the line from the source encoding,
+so it matches per character, not per byte.
+The regex is specified in Perl syntax and is compiled with the
+/m (multi-line), /s (single-line), and /u (Unicode) modifiers.
+The -i option adds the /i (case-insensitive) modifier.
+The /x (extended syntax) modifier is intentionally not applied,
+so whitespace and "#" in the pattern are matched literally.
 
 =back
 
@@ -361,10 +324,9 @@ This script is a simple implementation of grep with encoding
 conversion.
 It reads lines from the specified files (or standard input if no files
 are specified),
-converts the encoding of each line from the specified source encoding
-to UTF-8, and then applies the specified regular expression to the
-UTF-8 encoded line.
-If a match is found, it converts the line back to the specified target
+decodes each line from the specified source encoding,
+and then applies the specified regular expression to the decoded line.
+If a match is found, it encodes the line into the specified target
 encoding and prints it.
 The script supports various behaviors for handling encoding errors,
 which can be specified using the -b option.
@@ -380,15 +342,11 @@ and can be combined with other command-line tools for text processing.
 The script is intended for users who need to search for patterns in
 text files with different encodings and want to handle encoding errors
 in a customizable way.
-Regular expressions can be specified in Perl syntax, and the script
-supports various regex modifiers such as /i for case-insensitive
-matching.
-Regular expressions can also be specified in the /xmsui mode,
-which combines the extended, multi-line, single-line, Unicode,
-and case-insensitive modifiers.
-Regular expressions can also be specified in the /xmsu mode,
-which combines the extended, multi-line, single-line,
-and Unicode modifiers.
+Regular expressions are specified in Perl syntax and are compiled
+with the /m (multi-line), /s (single-line), and /u (Unicode)
+modifiers; the -i option adds the /i (case-insensitive) modifier.
+The /x (extended syntax) modifier is intentionally not applied,
+so whitespace and "#" in the pattern are matched literally.
 The script is open-source and can be modified and redistributed under
 the terms of the Apache License 2.0.
 Refer to the LICENSE AND COPYRIGHT section for more details.

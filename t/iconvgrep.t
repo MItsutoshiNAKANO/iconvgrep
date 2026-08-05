@@ -79,6 +79,12 @@ sub test_compile_regex {
     my $ci_regex = compile_regex( 'ba+r', 1 );
     ok( 'BAR' =~ $ci_regex, 'compile_regex: -i makes it case insensitive' );
 
+    my $space_regex = compile_regex( 'foo bar', 0 );
+    ok( 'foo bar' =~ $space_regex,
+        'compile_regex: whitespace in the pattern is matched literally' );
+    ok( 'foobar' !~ $space_regex,
+        'compile_regex: whitespace in the pattern is not ignored' );
+
     like(
         exception { compile_regex( '(unclosed', 0 ) },
         qr/invalid [ ] regex/xms,
@@ -107,22 +113,6 @@ sub test_specify_behavior {
         exception { specify_behavior('FB_BOGUS') },
         qr/invalid [ ] behavior/xms,
         'specify_behavior: unknown behavior name croaks',
-    );
-    return;
-}
-
-sub test_encode_decode_roundtrip {
-    my $text        = "犬猫\n";
-    my $euc_jp_line = encode( 'euc-jp', $text );
-    my $utf8_line   = encode( 'utf8',   $text );
-    my $behavior    = Encode::FB_DEFAULT;
-
-    is( encode_to_utf8( 'euc-jp', $euc_jp_line, $behavior ),
-        $utf8_line, 'encode_to_utf8: converts euc-jp bytes to utf8 bytes',
-    );
-    is( decode_from_utf8( 'euc-jp', $utf8_line, $behavior ),
-        $euc_jp_line,
-        'decode_from_utf8: converts utf8 bytes back to euc-jp bytes',
     );
     return;
 }
@@ -203,6 +193,32 @@ sub test_grep_no_match {
     return;
 }
 
+## Regression test: the UTF-8 encoding of the first character of each
+## test word below contains the byte 0x85 (NEL).  When the undecoded
+## pattern was compiled with /x, that byte was silently dropped as
+## ignorable whitespace and the pattern never matched.
+## UTF-8 hex codes of the affected characters:
+##   光 (U+5149) = E5 85 89, 元 (U+5143) = E5 85 83,
+##   先 (U+5148) = E5 85 88, 兄 (U+5144) = E5 85 84,
+##   克 (U+514B) = E5 85 8B, 免 (U+514D) = E5 85 8D,
+##   児 (U+5150) = E5 85 90
+sub test_grep_multibyte_pattern {
+    foreach my $word (qw(光子 元素 先生 兄弟 克服 免許 児童)) {
+        my $label = sprintf 'U+%04X', ord $word;
+        my ( $stdout, $exit_code ) = run_script(
+            [ encode( 'utf8', $word ) ],
+            encode( 'utf8', "$word\n電圧\n" )
+        );
+        is( $exit_code, 0, "multibyte pattern $label: exits successfully" );
+        is( $stdout,
+            encode( 'utf8', "-:1: $word\n" ),
+            "multibyte pattern $label: matches a word whose UTF-8 form"
+                . ' contains the 0x85 byte'
+        );
+    }
+    return;
+}
+
 sub test_grep_encoding_conversion {
     my $text         = "犬\n猫\n";
     my $euc_jp_bytes = encode( 'euc-jp', $text );
@@ -239,10 +255,10 @@ sub test_missing_regex_exits_nonzero {
 
 test_compile_regex();
 test_specify_behavior();
-test_encode_decode_roundtrip();
 test_parse_arguments();
 test_grep_from_file();
 test_grep_from_stdin();
+test_grep_multibyte_pattern();
 test_grep_case_insensitive();
 test_grep_no_match();
 test_grep_encoding_conversion();
